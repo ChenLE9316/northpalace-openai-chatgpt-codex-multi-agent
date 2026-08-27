@@ -1,0 +1,237 @@
+schema_version: 1
+workstream: WS-5
+name: tools-api-mcp-appserver
+upstream_commit: 7c3747941a6b664c30f1e6aa72a917fd74dc22d2
+status: source_audited
+requirement_sources:
+  primary: [REQDOC-09, REQDOC-33]
+  supporting: [REQDOC-01, REQDOC-05, REQDOC-14, REQDOC-27, REQDOC-39]
+
+principles:
+  - "Codex ToolRegistry is the authoritative in-process tool registry/execution dispatch boundary; NorthPalace does not build a second ToolRuntime or ToolBroker."
+  - "Dynamic tools are the preferred host callback bridge when a client owns execution; extension ToolContributor is the preferred in-process extension bridge."
+  - "MCP is a native Codex subsystem with thread-owned runtime, catalog, auth, permissions, resources and tool execution; NorthPalace does not create a parallel MCP manager."
+  - "codex app-server is the primary rich-client control plane; Desktop/CLI integrations should consume it before adding another API gateway."
+  - "REQDOC API protocol vocabulary is capability inventory, not an instruction to expose every protocol simultaneously. Add an adapter only for a concrete external consumer that app-server/MCP/native APIs cannot serve."
+
+native_surfaces:
+  tool_registry:
+    classification: NATIVE_RUNTIME
+    evidence:
+      - codex-rs/core/src/tools/registry.rs
+    capabilities:
+      - typed ToolExecutor/ToolInvocation dispatch
+      - ToolSpec registration
+      - direct and deferred exposure
+      - namespace-aware tool names
+      - trusted versus external registration
+      - external reserved-name protection
+      - collision detection
+      - readiness checks
+      - MCP owner metadata
+      - telemetry metadata
+      - pre-tool and post-tool lifecycle hooks
+      - pre-tool argument rewrite
+      - streamed argument-diff consumers
+      - response conversion through ToolOutput
+    authority_rule: "Tool existence, execution dispatch and model exposure remain in the official registry."
+
+  extension_tool_contributors:
+    classification: NATIVE_EXTENSION
+    evidence:
+      - codex-rs/ext/extension-api/src/contributors.rs
+      - codex-rs/core/src/tools/handlers/extension_tools.rs
+    capabilities:
+      - static extension tool contribution
+      - per-step tool contribution
+      - tool lifecycle contribution
+      - approval review contribution
+      - integration with context/thread/turn/config/token/skill extension lifecycle
+    northpalace_rule: "Prefer a Codex extension contributor for NorthPalace-owned in-process tools rather than patching the registry or creating a side registry."
+
+  dynamic_tools:
+    classification: NATIVE_APP_SERVER_BRIDGE
+    evidence:
+      - codex-rs/protocol/src/dynamic_tools.rs
+      - codex-rs/core/src/tools/handlers/dynamic.rs
+    capabilities:
+      - function tool schema
+      - namespace tool schema
+      - JSON input schema
+      - direct or deferred loading
+      - legacy format normalization
+      - host-owned request/response callback
+      - call id and turn id correlation
+      - structured text/image/audio output items
+      - success/failure result
+      - turn-item lifecycle and duration tracking
+      - cancellation when host response disappears
+    northpalace_rule: "Use dynamic tools when NorthPalace Desktop/host owns the actual executor."
+
+  mcp_runtime:
+    classification: NATIVE_RUNTIME
+    evidence:
+      - codex-rs/codex-mcp/src/lib.rs
+      - codex-rs/codex-mcp/src/runtime.rs
+      - codex-rs/codex-mcp/src/mcp/mod.rs
+      - codex-rs/codex-mcp/src/binding.rs
+      - codex-rs/config/src/mcp_types.rs
+    ownership: "One mutable McpRuntime per Codex thread; immutable bindings capture exact catalog/config/client authority for calls."
+    capabilities:
+      - eager and lazy server startup policy
+      - resolved server catalog
+      - server source/plugin attribution
+      - conflict handling
+      - atomic runtime publication/replacement
+      - reconnect and auth-failure refresh
+      - tool catalog cache
+      - tool discovery and frozen bindings
+      - model-visible tool filtering
+      - list/read resources and resource templates
+      - event/resource provenance
+      - exact prepared-call catalog revision checks
+      - per-server and caller-restrictive tool timeout
+      - structured MCP call result
+      - OAuth and ChatGPT auth modes
+      - OAuth scopes/client/callback/resource configuration
+      - elicitation lifecycle/reviewer
+      - environment-owned server execution
+      - per-server permission profiles
+      - per-tool approval mode
+      - enabled/disabled tool allow/deny lists
+      - required server semantics
+      - optional parallel-tool-call declaration
+      - stdio and streamable HTTP server configuration
+      - threadless discovery with reduced/default authority
+    authority_rule: "MCP server catalog, connection state, auth, permission and call execution remain official Codex state."
+
+  app_server:
+    classification: NATIVE_APP_SERVER
+    evidence:
+      - codex-rs/app-server/README.md
+      - codex-rs/app-server-protocol/src/protocol/v2/
+    wire_protocol: "Bidirectional JSON-RPC 2.0 shape with jsonrpc header omitted on the wire."
+    transports:
+      - stdio JSONL
+      - unix-socket websocket control transport
+      - experimental websocket listener
+      - off
+    health_and_backpressure:
+      - readyz
+      - healthz
+      - bounded ingress/processing/outbound queues
+      - overload error -32001
+      - documented client exponential-backoff-with-jitter expectation
+    schema_contract:
+      - generate-ts
+      - generate-json-schema
+    core_primitives: [Thread, Turn, Item]
+    major_v2_domains:
+      - initialization/capabilities
+      - thread lifecycle/read/list/pagination/fork/revert/archive
+      - turn start/steer/interrupt
+      - item streaming/deltas
+      - project CRUD/assignment
+      - thread sections
+      - model/config/collaboration
+      - permissions/approvals
+      - skills/plugins/apps
+      - MCP status/resource/tool-call/refresh/OAuth/event streams/elicitation
+      - environment/filesystem/process/command execution
+      - diagnostics
+      - realtime
+      - remote control
+      - account/auth
+    northpalace_rule: "NorthPalace Desktop/CLI control-plane APIs should project/consume app-server methods and notifications instead of owning Thread/Turn/Item state."
+
+  app_server_mcp_api:
+    classification: NATIVE_APP_SERVER
+    evidence:
+      - codex-rs/app-server-protocol/src/protocol/v2/mcp.rs
+    capabilities:
+      - paginated MCP server status inventory
+      - connection/auth/startup status
+      - tool/resource/resource-template inventory
+      - thread-bound or threadless resource read
+      - MCP event stream start/stop/notifications
+      - direct thread-bound MCP tool call with structured result/meta
+      - server refresh
+      - OAuth login and completion notification
+      - tool-call progress notification
+      - elicitation request/response
+
+requirement_lowering_guidance:
+  tool_definition_schema:
+    classification: NATIVE_RUNTIME
+    surfaces: [ToolSpec, DynamicToolSpec, MCP Tool]
+  tool_registration_discovery_namespace_collision:
+    classification: NATIVE_RUNTIME
+    surfaces: [ToolRegistry, ToolContributor, DynamicTool namespace, McpCatalogBuilder]
+  tool_enable_disable_exposure:
+    classification: NATIVE_CONFIG_OR_RUNTIME
+  tool_selection_ranking_relevance:
+    classification: COMPOSED_NATIVE
+    composition: [model tool selection, deferred tool search, role/skill policy, native allow/deny exposure]
+  tool_permissions_risk_approval:
+    classification: COMPOSED_NATIVE
+    composition: [PermissionProfile, approval policy, ToolLifecycle hooks, MCP per-server/per-tool approval]
+  generic_cost_metadata_business_priority:
+    classification: POLICY_ONLY
+    note: "May decorate/project tools for routing but cannot replace native registry identity or permission authority."
+  tool_timeout_cancellation_retry:
+    classification: COMPOSED_NATIVE
+    note: "Timeout/cancellation exist in several native executors; retry semantics are tool/protocol specific and must not be generalized without exact behavior."
+  parallel_sequential_batch_execution:
+    classification: COMPOSED_NATIVE
+    note: "Use native model/agent/tool concurrency contracts; no generic NorthPalace tool scheduler."
+  generic_transaction_commit_rollback:
+    classification: DOMAIN_SPECIFIC
+    note: "Only tools whose underlying system has transaction semantics should expose them; do not add fake universal transactions to ToolRegistry."
+  tool_cache:
+    classification: DOMAIN_SPECIFIC_OR_NATIVE_CACHE
+    note: "MCP catalog/connectors and other subsystems have native caches; generic result caching requires an exact idempotency/freshness contract."
+  mcp_manager_registry_client:
+    classification: NATIVE_RUNTIME
+  mcp_external_extension_servers:
+    classification: NATIVE_EXTENSION
+    surface: McpServerContributor
+  rich_client_api:
+    classification: NATIVE_APP_SERVER
+  rest_graphql_generic_http_api:
+    classification: ADAPTER_ONLY_WHEN_REQUIRED
+    note: "Not required in core merely because REQDOC-33 lists protocol families."
+  grpc:
+    classification: DOMAIN_SPECIFIC_NATIVE_OR_ADAPTER
+    note: "Codex has gRPC in specific remote-host paths; that does not make gRPC the universal NorthPalace client API."
+  websocket_streaming:
+    classification: NATIVE_APP_SERVER
+    note: "App-server websocket listener is explicitly experimental/unsupported at this pin; prefer stdio/unix for production local control."
+  api_gateway:
+    classification: PROJECTION_OR_ADAPTER
+    note: "A thin boundary may translate external protocols to app-server/native surfaces, but it must not become execution/state authority."
+  api_version_schema_types:
+    classification: NATIVE_APP_SERVER
+    note: "Use generated version-specific TS/JSON Schema from the pinned app-server."
+  api_pagination_filter_search:
+    classification: NATIVE_APP_SERVER_WHERE_DEFINED
+    note: "Use endpoint-specific V2 contracts; do not invent global semantics."
+  api_backpressure:
+    classification: NATIVE_APP_SERVER
+  api_auth_security_rate_limit:
+    classification: BOUNDARY_SPECIFIC
+    note: "MCP OAuth, Codex account auth, permission profiles and app-server local transport security are native. External public HTTP gateway auth/rate limiting is an adapter/host concern only if such a gateway is actually introduced."
+
+anti_duplication_rules:
+  - "No northpalace/tool_runtime or second authoritative ToolRegistry."
+  - "No NorthPalace MCP connection manager/catalog/auth store parallel to codex-mcp."
+  - "No NorthPalace API gateway that owns Thread/Turn/Item lifecycle or duplicates app-server persistence."
+  - "No generic retry/transaction/cache layer wrapped around every tool without per-tool correctness semantics."
+  - "Protocol adapters must be stateless or derived projections wherever possible and must preserve native IDs/errors/permissions."
+
+verified_gap_candidates: []
+
+next_verification:
+  - "Map official ToolRegistry/dynamic/MCP/app-server tests to WS-5 requirements."
+  - "Add a boundary verifier guard against shadow tool_runtime/tool_registry/mcp_manager/api_gateway directories."
+  - "Validate the NorthPalace desktop control-plane design against app-server stdio/unix transport before considering any custom HTTP service."
+  - "Audit whether any REQDOC-09 tool metadata field has an exact behavioral requirement not representable by ToolSpec/MCP/extension policy."
